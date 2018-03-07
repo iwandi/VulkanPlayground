@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace VulkanPlayground.GraphicsHardware
 {
-    public struct DeviceLayout
+    /*public struct DeviceLayout
     {
         public DeviceRequirment[] Requirments;
 
@@ -143,5 +143,5 @@ namespace VulkanPlayground.GraphicsHardware
         void Draw(); // TODO Params
 
         void ClearCommands();
-    }
+    }*/
 }

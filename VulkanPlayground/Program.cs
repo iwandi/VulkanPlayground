@@ -25,13 +25,12 @@ namespace VulkanPlayground
             public App()
             {
                 InitVulkanInstance();
-
-
+                InitVulkanDevice();
             }
 
             public void Run()
             {
-
+                Console.ReadLine();
             }
 
             void InitVulkanInstance()
@@ -41,19 +40,44 @@ namespace VulkanPlayground
 
             void InitVulkanDevice()
             {
+                physicalDevice = VulkanInitUtility.SelectPhysicalDevice(instance);
+
                 List<DeviceQueueCreateInfo> queus = new List<DeviceQueueCreateInfo>();
-                
+                uint selectedQueue;
+                // TODO : this needs to be a single step in order to correctly partition
+                if (VulkanInitUtility.TrySelectQueue(physicalDevice, QueueFlags.Compute | QueueFlags.Graphics | QueueFlags.Transfer, out selectedQueue))
+                {
+                    queus.Add(new DeviceQueueCreateInfo
+                    {
+                        QueueCount = 1,
+                        QueueFamilyIndex = selectedQueue,
+                        QueuePriorities = new float[] {  1.0f },
+                    });
+                };
+                /*if (VulkanInitUtility.TrySelectQueue(physicalDevice, QueueFlags.Transfer, out selectedQueue))
+                {
+                    queus.Add(new DeviceQueueCreateInfo
+                    {
+                        QueueCount = 1,
+                        QueueFamilyIndex = selectedQueue,
+                        QueuePriorities = new float[] { 1.0f },
+                    });
+                };
+                if (VulkanInitUtility.TrySelectQueue(physicalDevice, QueueFlags.Compute, out selectedQueue))
+                {
+                    queus.Add(new DeviceQueueCreateInfo
+                    {
+                        QueueCount = 1,
+                        QueueFamilyIndex = selectedQueue,
+                        QueuePriorities = new float[] { 1.0f },
+                    });
+                };*/
 
                 DeviceCreateInfo deviceCreateInfo = VulkanInitUtility.CreateDeviceCreateInfo(VulkanInitUtility.InitRequestCommonDebug);
                 deviceCreateInfo.QueueCreateInfos = queus.ToArray();
-                
-                foreach(PhysicalDevice avialablePhysicalDevice in instance.EnumeratePhysicalDevices())
-                {
-
-                }
 
                 device = physicalDevice.CreateDevice(deviceCreateInfo);
-            }
+            }            
         }        
     }
 }

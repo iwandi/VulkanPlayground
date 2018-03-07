@@ -80,7 +80,7 @@ namespace VulkanPlayground
         {
             string[] layers;
             string[] extentions;
-            if(initRequest != null)
+            if (initRequest != null)
             {
                 layers = GetLayers(initRequest);
                 extentions = GetExtentions(initRequest);
@@ -99,7 +99,7 @@ namespace VulkanPlayground
             };
             return instanceCreateInfo;
         }
-        
+
         public static string[] GetLayers(IEnumerable<InitRequest> initRequest)
         {
             return GetLayers(initRequest, Vulkan.Commands.EnumerateInstanceLayerProperties());
@@ -171,7 +171,7 @@ namespace VulkanPlayground
         public static Instance CreateInstance(bool includeCommonDebug = false)
         {
             IEnumerable<InitRequest> initRequest = null;
-            if(includeCommonDebug)
+            if (includeCommonDebug)
             {
                 initRequest = InitRequestCommonDebug;
             }
@@ -199,37 +199,83 @@ namespace VulkanPlayground
             {
                 EnabledLayerNames = layers,
                 EnabledExtensionNames = extentions,
-                
+
             };
             return deviceCreateInfo;
         }
 
-        /*public static Device CreateInstanceAndDevice(out Instance instance, bool includeCommonDebug = false)
+        public static PhysicalDevice SelectPhysicalDevice(Instance instance)
         {
-            instance = CreateInstance(includeCommonDebug);
-            return CreateDevice(instance, includeCommonDebug);
-        }*/
-
-
-        // TODO, Requires PhysicalDevice Selection
-        // TODO, Requires Device features Selection
-        // TODO, Requires Quere Selection
-        /*public static Device CreateDevice(Instance instance, bool includeCommonDebug = false)
-        {
-            PhysicalDevice[] physicals = instance.EnumeratePhysicalDevices();
-            foreach(PhysicalDevice physical in physicals)
+            foreach (PhysicalDevice physicalDevice in instance.EnumeratePhysicalDevices())
             {
-                physical.
+                // TODO : Select Best GPU
+                return physicalDevice;
+            }
+            return null;
+        }
+
+        static PhysicalDevice QueueFamilyPropertiesCachePhysicalDevice;
+        static QueueFamilyProperties[] QueueFamilyPropertiesCache;
+
+        public static bool TrySelectQueue(PhysicalDevice physicalDevice, QueueFlags flags, out uint selectedIndex)
+        {
+            if (QueueFamilyPropertiesCachePhysicalDevice != physicalDevice)
+            {
+                QueueFamilyPropertiesCachePhysicalDevice = physicalDevice;
+                QueueFamilyPropertiesCache = physicalDevice.GetQueueFamilyProperties();
             }
 
-
-            IEnumerable<InitRequest> initRequest = null;
-            if (includeCommonDebug)
+            selectedIndex = 0;
+            int score = 0;
+            uint i = 0;
+            foreach (QueueFamilyProperties test in QueueFamilyPropertiesCache)
             {
-                initRequest = InitRequestCommonDebug;
+                int checkScore = ScoreQueue(test, flags);
+                if(checkScore > score)
+                {
+                    selectedIndex = i;
+                    score = checkScore;
+                }
+                i++;
             }
-            DeviceCreateInfo deviceCreateInfo = CreateDeviceCreateInfo(initRequest);
+            return score > 0;
+        }
 
-        }*/
+        static int ScoreQueue(QueueFamilyProperties queueFamilyProperties, QueueFlags flags)
+        {
+            // Check if all flags are pressent
+            if ((queueFamilyProperties.QueueFlags & flags) == flags)
+            {
+                int score = 256; // base score this was we can remove a lot and are still over 0
+
+                int targetFlagCount = CountFlags((int)flags);
+                int flagsCount = CountFlags((int)queueFamilyProperties.QueueFlags);
+
+                score -= flagsCount - targetFlagCount * 16; // remove 16 for for overmaching the falgs
+                score += (int)queueFamilyProperties.QueueCount; // add score for QueueCount;
+                
+                if(score <= 0)
+                {
+                    // always return minimum of 1 if it maches the flags
+                    return 1;
+                }
+                return score;
+            }
+            return 0;
+        }
+
+        static int CountFlags(int v)
+        {
+            v = v - ((v >> 1) & 0x55555555); // reuse input as temporary
+            v = (v & 0x33333333) + ((v >> 2) & 0x33333333); // temp
+            int c = ((v + (v >> 4) & 0xF0F0F0F) * 0x1010101) >> 24; // count
+            return c;
+        }
+
+        public static void ClearCaches()
+        {
+            QueueFamilyPropertiesCachePhysicalDevice = null;
+            QueueFamilyPropertiesCache = null;
+        }
     }
 }
