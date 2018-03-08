@@ -1,10 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
 using Vulkan;
+using Vulkan.Windows;
 
 namespace VulkanPlayground
 {
@@ -13,7 +15,8 @@ namespace VulkanPlayground
         public enum InitRequestType
         {
             Layer,
-            Extention,
+            InstanceExtention,
+            DeviceExtention,
         }
 
         public struct InitRequest
@@ -32,6 +35,21 @@ namespace VulkanPlayground
                         Type = InitRequestType.Layer,
                         Name = "VK_LAYER_LUNARG_standard_validation",
                         Required = false,
+                    },
+                    new InitRequest{
+                        Type = InitRequestType.InstanceExtention,
+                        Name = "VK_KHR_surface",
+                        Required = true,
+                    },
+                    new InitRequest{
+                        Type = InitRequestType.InstanceExtention,
+                        Name = "VK_KHR_win32_surface",
+                        Required = true,
+                    },
+                    new InitRequest{
+                        Type = InitRequestType.DeviceExtention,
+                        Name = "VK_KHR_swapchain",
+                        Required = true,
                     },
                 };
             }
@@ -82,8 +100,8 @@ namespace VulkanPlayground
             string[] extentions;
             if (initRequest != null)
             {
-                layers = GetLayers(initRequest);
-                extentions = GetExtentions(initRequest);
+                layers = GetInstanceLayers(initRequest);
+                extentions = GetInstanceExtention(initRequest);
             }
             else
             {
@@ -98,19 +116,24 @@ namespace VulkanPlayground
                 EnabledExtensionNames = extentions,
             };
             return instanceCreateInfo;
-        }
+        }        
 
-        public static string[] GetLayers(IEnumerable<InitRequest> initRequest)
+        public static string[] GetInstanceLayers(IEnumerable<InitRequest> initRequest)
         {
-            return GetLayers(initRequest, Vulkan.Commands.EnumerateInstanceLayerProperties());
+            return GetLayers(Vulkan.Commands.EnumerateInstanceLayerProperties(), InitRequestType.Layer, initRequest);
         }
 
-        public static string[] GetLayers(IEnumerable<InitRequest> initRequest, LayerProperties[] properties)
+        public static string[] GetDeviceLayers(PhysicalDevice physicalDevice, IEnumerable<InitRequest> initRequest)
+        {
+            return GetLayers(physicalDevice.EnumerateDeviceLayerProperties(), InitRequestType.Layer, initRequest);
+        }
+
+        public static string[] GetLayers(LayerProperties[] properties, InitRequestType targetType, IEnumerable<InitRequest> initRequest)
         {
             List<string> list = new List<string>();
             foreach (InitRequest request in initRequest)
             {
-                if (request.Type == InitRequestType.Layer)
+                if (request.Type == targetType)
                 {
                     bool present = false;
                     foreach (var propertie in properties)
@@ -134,17 +157,22 @@ namespace VulkanPlayground
             return list.ToArray();
         }
 
-        public static string[] GetExtentions(IEnumerable<InitRequest> initRequest)
+        public static string[] GetInstanceExtention(IEnumerable<InitRequest> initRequest)
         {
-            return GetExtentions(initRequest, Vulkan.Commands.EnumerateInstanceExtensionProperties());
+            return GetExtention(Vulkan.Commands.EnumerateInstanceExtensionProperties(), InitRequestType.InstanceExtention, initRequest);
         }
 
-        public static string[] GetExtentions(IEnumerable<InitRequest> initRequest, ExtensionProperties[] properties)
+        public static string[] GetDeviceExtention(PhysicalDevice physicalDevice, IEnumerable<InitRequest> initRequest)
+        {
+            return GetExtention(physicalDevice.EnumerateDeviceExtensionProperties(), InitRequestType.DeviceExtention, initRequest);
+        }
+
+        public static string[] GetExtention(ExtensionProperties[] properties, InitRequestType targetType, IEnumerable<InitRequest> initRequest)
         {
             List<string> list = new List<string>();
             foreach (InitRequest request in initRequest)
             {
-                if (request.Type == InitRequestType.Extention)
+                if (request.Type == targetType)
                 {
                     bool present = false;
                     foreach (var propertie in properties)
@@ -180,14 +208,14 @@ namespace VulkanPlayground
             return new Instance(instanceCreateInfo);
         }
 
-        public static DeviceCreateInfo CreateDeviceCreateInfo(IEnumerable<InitRequest> initRequest = null)
+        public static DeviceCreateInfo CreateDeviceCreateInfo(PhysicalDevice physicalDevice, bool createDefaultQueue, IEnumerable<InitRequest> initRequest = null)
         {
             string[] layers;
             string[] extentions;
             if (initRequest != null)
             {
-                layers = GetLayers(initRequest);
-                extentions = GetExtentions(initRequest);
+                layers = GetDeviceExtention(physicalDevice, initRequest);
+                extentions = GetDeviceExtention(physicalDevice, initRequest);
             }
             else
             {
@@ -195,11 +223,28 @@ namespace VulkanPlayground
                 extentions = new string[0];
             }
 
+            List<DeviceQueueCreateInfo> queus = new List<DeviceQueueCreateInfo>();
+            if (createDefaultQueue)
+            {
+                uint selectedQueue;
+                // TODO : this needs to be a single step in order to correctly partition
+                // TODO : on default we should look for a present queue
+                if (VulkanInitUtility.TrySelectQueue(physicalDevice, QueueFlags.Compute | QueueFlags.Graphics | QueueFlags.Transfer, true, out selectedQueue))
+                {
+                    queus.Add(new DeviceQueueCreateInfo
+                    {
+                        QueueCount = 1,
+                        QueueFamilyIndex = selectedQueue,
+                        QueuePriorities = new float[] { 1.0f },
+                    });
+                };
+            }
+
             DeviceCreateInfo deviceCreateInfo = new DeviceCreateInfo
             {
                 EnabledLayerNames = layers,
                 EnabledExtensionNames = extentions,
-
+                QueueCreateInfos = queus.ToArray(),
             };
             return deviceCreateInfo;
         }
@@ -208,16 +253,28 @@ namespace VulkanPlayground
         {
             foreach (PhysicalDevice physicalDevice in instance.EnumeratePhysicalDevices())
             {
-                // TODO : Select Best GPU
+                // TODO : Select Best GPU via VkPhysicalDeviceType 
                 return physicalDevice;
             }
             return null;
         }
 
+        public static Device CreateDevice(PhysicalDevice physicalDevice, bool createDefaultQueue = true, bool includeCommonDebug = false)
+        {
+            IEnumerable<InitRequest> initRequest = null;
+            if (includeCommonDebug)
+            {
+                initRequest = InitRequestCommonDebug;
+            }
+
+            DeviceCreateInfo deviceCreateInfo = VulkanInitUtility.CreateDeviceCreateInfo(physicalDevice, createDefaultQueue, initRequest);
+            return physicalDevice.CreateDevice(deviceCreateInfo);
+        }
+
         static PhysicalDevice QueueFamilyPropertiesCachePhysicalDevice;
         static QueueFamilyProperties[] QueueFamilyPropertiesCache;
 
-        public static bool TrySelectQueue(PhysicalDevice physicalDevice, QueueFlags flags, out uint selectedIndex)
+        public static bool TrySelectQueue(PhysicalDevice physicalDevice, QueueFlags flags, bool present, out uint selectedIndex)
         {
             if (QueueFamilyPropertiesCachePhysicalDevice != physicalDevice)
             {
@@ -230,6 +287,12 @@ namespace VulkanPlayground
             uint i = 0;
             foreach (QueueFamilyProperties test in QueueFamilyPropertiesCache)
             {
+                /*foreach(SurfaceFormatKhr format in physicalDevice.GetSurfaceFormatsKHR())
+                {
+
+                }
+                physicalDevice.GetSurfaceSupportKHR(i);*/
+
                 int checkScore = ScoreQueue(test, flags);
                 if(checkScore > score)
                 {
@@ -276,6 +339,128 @@ namespace VulkanPlayground
         {
             QueueFamilyPropertiesCachePhysicalDevice = null;
             QueueFamilyPropertiesCache = null;
+        }
+
+        public static SurfaceKhr CreateSurface(Instance instance, System.Windows.Forms.Form window)
+        {
+            Win32SurfaceCreateInfoKhr surfaceCreateInfo = new Win32SurfaceCreateInfoKhr
+            {
+                Hinstance = System.Diagnostics.Process.GetCurrentProcess().Handle,
+                Hwnd = window.Handle,
+            };
+            return instance.CreateWin32SurfaceKHR(surfaceCreateInfo);
+        }
+
+        // TODO : move to MathF class
+        public static float Clamp(float value, float min, float max)
+        {
+            return (value < min) ? min : (value > max) ? max : value;
+        }
+
+        public static uint Clamp(uint value, uint min, uint max)
+        {
+            return (value < min) ? min : (value > max) ? max : value;
+        }
+
+        public static bool CheckSwapchainCreateInfo(PhysicalDevice physicalDevice, SwapchainCreateInfoKhr createInfo, bool fixExtend)
+        {
+            SurfaceKhr surface = createInfo.Surface;
+            foreach (uint index in createInfo.QueueFamilyIndices)
+            {
+                if (!physicalDevice.GetSurfaceSupportKHR(index, surface))
+                {
+                    return false;
+                }
+            }
+
+            bool supportImageFormat = false;
+            foreach (SurfaceFormatKhr suportedFormat in physicalDevice.GetSurfaceFormatsKHR(surface))
+            {
+                if (suportedFormat.Format == createInfo.ImageFormat &&
+                    suportedFormat.ColorSpace == createInfo.ImageColorSpace)
+                {
+                    supportImageFormat = true;
+                    break;
+                }
+            }
+            if (!supportImageFormat)
+            {
+                return false;
+            }
+
+            SurfaceCapabilitiesKhr capabilities = physicalDevice.GetSurfaceCapabilitiesKHR(surface);
+            if(fixExtend)
+            {
+                var extend = createInfo.ImageExtent;
+                extend.Width = Clamp(extend.Width, capabilities.MinImageExtent.Width, capabilities.MaxImageExtent.Width);
+                extend.Height = Clamp(extend.Height, capabilities.MinImageExtent.Height, capabilities.MaxImageExtent.Height);
+                createInfo.ImageExtent = extend;
+            }
+            if(createInfo.PreTransform == SurfaceTransformFlagsKhr.Inherit)
+            {
+                createInfo.PreTransform = capabilities.CurrentTransform;
+            }
+            // TODO: Fix up CompositeAlpha if Inherit is set
+
+            if (capabilities.MinImageCount <= createInfo.MinImageCount &&
+                capabilities.MaxImageCount >= createInfo.MinImageCount &&
+                capabilities.MaxImageArrayLayers <= createInfo.ImageArrayLayers &&
+                ((capabilities.SupportedTransforms & createInfo.PreTransform ) == createInfo.PreTransform) &&
+                ((capabilities.SupportedCompositeAlpha & createInfo.CompositeAlpha) == createInfo.CompositeAlpha) &&
+                ((capabilities.SupportedUsageFlags & createInfo.ImageUsage) == createInfo.ImageUsage) &&
+                createInfo.ImageExtent.Width >= capabilities.MinImageExtent.Width &&
+                createInfo.ImageExtent.Width <= capabilities.MaxImageExtent.Width &&
+                createInfo.ImageExtent.Height >= capabilities.MinImageExtent.Height &&
+                createInfo.ImageExtent.Height <= capabilities.MaxImageExtent.Height)
+            {
+                return true;
+            }
+            return false;
+        }
+
+        public static bool TryCreateSwapChain(Instance instance, PhysicalDevice physicalDevice, Device device,
+            SurfaceKhr surface, uint queue, System.Drawing.Size size,
+            Format format, ColorSpaceKhr colorSpace, PresentModeKhr presentMode,
+            ref SwapchainKhr swapchain)
+        {   
+            SwapchainCreateInfoKhr swapChainCreateInfo = new SwapchainCreateInfoKhr
+            {
+                Surface = surface,
+                MinImageCount = 2,
+                ImageFormat = format,
+                ImageColorSpace = colorSpace,
+                ImageExtent = ToExtent2D(size),
+                ImageArrayLayers = 1,
+                ImageUsage = ImageUsageFlags.ColorAttachment,
+                ImageSharingMode = SharingMode.Exclusive,
+                QueueFamilyIndices = new uint[] { queue },
+                PreTransform = SurfaceTransformFlagsKhr.Inherit,
+                CompositeAlpha = CompositeAlphaFlagsKhr.Opaque, // TODO : set this to Ingerit if it can be fixed in Check
+                PresentMode = presentMode,
+                Clipped = false,
+                OldSwapchain = swapchain,
+            };
+
+            if(!CheckSwapchainCreateInfo(physicalDevice, swapChainCreateInfo, true))
+            {
+                return false;
+            }
+
+            SwapchainKhr newSwapchain = device.CreateSwapchainKHR(swapChainCreateInfo);
+            if (newSwapchain != null)
+            {
+                swapchain = newSwapchain;
+                return true;
+            }
+            return false;
+        }
+
+        public static Extent2D ToExtent2D(System.Drawing.Size size)
+        {
+            Extent2D extent = new Extent2D();
+            extent.Width = (uint)size.Width;
+            extent.Height = (uint)size.Height;
+            return extent;
         }
     }
 }

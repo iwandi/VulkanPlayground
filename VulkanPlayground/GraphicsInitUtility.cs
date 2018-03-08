@@ -63,6 +63,7 @@ namespace VulkanPlayground.GraphicsHardware
         public QueuTypeFlags TypeFlags;
         public int MinCount;
         public int MaxCount;
+        public bool SupportPressent;
     }
 
     [Flags]
