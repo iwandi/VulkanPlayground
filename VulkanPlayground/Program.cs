@@ -34,6 +34,9 @@ namespace VulkanPlayground
 
             SurfaceKhr surface;
             SwapchainKhr swapChain;
+            Semaphore swapChainSemphore;
+
+            Stack<Action> cleanupStack = new Stack<Action>();
 
             public App()
             {
@@ -53,50 +56,10 @@ namespace VulkanPlayground
 
             ~App()
             {
-                // TODO : create a eay system that alows cleanup in reverse order
                 Console.WriteLine("Cleanup start");
-                if (swapChain != null)
+                while(cleanupStack.Count > 0)
                 {
-                    device.DestroySwapchainKHR(swapChain);
-                    swapChain = null;
-                }
-                if(surface != null)
-                {
-                    instance.DestroySurfaceKHR(surface);
-                    surface = null;
-                }
-                if(window != null)
-                {
-                    if (!window.IsDisposed)
-                    {
-                        window.Close();
-                    }
-                    window = null;
-                }
-                if(mainCmd != null)
-                {
-                    device.FreeCommandBuffer(mainCmdPool, mainCmd);
-                    mainCmd = null;
-                }
-                if(mainCmdPool != null)
-                {
-                    device.DestroyCommandPool(mainCmdPool);
-                    mainCmdPool = null;
-                }
-                if(mainQueue != null)
-                {
-                    mainQueue = null;
-                }
-                if (device != null)
-                {
-                    device.Destroy();
-                    device = null;
-                }
-                physicalDevice = null;
-                if (instance != null)
-                {
-                    instance.Destroy();
-                    instance = null;
+                    cleanupStack.Pop()();
                 }
                 Console.WriteLine("Cleanup done");
                 Console.ReadLine();
@@ -108,23 +71,23 @@ namespace VulkanPlayground
                 {
                     Application.DoEvents();
 
-                    uint imageIndex = device.AcquireNextImageKHR(swapChain, uint.MaxValue); // TODO : add locking system
+                    uint imageIndex = device.AcquireNextImageKHR(swapChain, uint.MaxValue, swapChainSemphore);
                     
                     mainCmd.Begin(new CommandBufferBeginInfo { });
-                    mainCmd.CmdClearColorImage(null, 
+                    /*mainCmd.CmdClearColorImage(null, 
                         Vulkan.ImageLayout.ColorAttachmentOptimal, 
                         new ClearColorValue(new float[] { 1.0f, 0.5f, 0.0f, 1.0f }), 
-                        new ImageSubresourceRange[] {});
+                        new ImageSubresourceRange[] {});*/
                     mainCmd.End();
                     mainQueue.Submit(new SubmitInfo
                     {
-                        CommandBuffers = new CommandBuffer[] { mainCmd },                        
+                        CommandBuffers = new CommandBuffer[] { mainCmd },
                     });
                     mainQueue.PresentKHR(new PresentInfoKhr
                     {
-                        // TODO : locking
                         Swapchains = new SwapchainKhr[] { swapChain },
                         ImageIndices = new uint[] { imageIndex },
+                        WaitSemaphores =  new Semaphore[] { swapChainSemphore },
                     });
 
                     System.Threading.Thread.Sleep(10);
@@ -134,6 +97,11 @@ namespace VulkanPlayground
             void InitVulkanInstance()
             {
                 instance = VulkanInitUtility.CreateInstance(true);
+
+                cleanupStack.Push(() => {
+                    instance.Destroy();
+                    instance = null;
+                });
             }
 
             void InitVulkanDevice()
@@ -142,6 +110,15 @@ namespace VulkanPlayground
                 device = VulkanInitUtility.CreateDevice(physicalDevice, true, true);
 
                 mainQueue = device.GetQueue(0, 0);
+
+                cleanupStack.Push(() => {
+                    mainQueue = null;
+
+                    device.Destroy();
+                    device = null;
+
+                    physicalDevice = null;
+                });
             }   
 
             void InitCommandBuffers()
@@ -161,6 +138,13 @@ namespace VulkanPlayground
                 };
 
                 mainCmd = device.AllocateCommandBuffers(bufferAllocInfo)[0];
+
+                cleanupStack.Push(() => {
+                    device.FreeCommandBuffer(mainCmdPool, mainCmd);
+                    mainCmd = null;
+                    device.DestroyCommandPool(mainCmdPool);
+                    mainCmdPool = null;
+                });
             }
             
             void InitWindow()
@@ -168,6 +152,14 @@ namespace VulkanPlayground
                 window = new Form();
                 window.Show();
                 window.Size = new System.Drawing.Size(1280, 720);
+
+                cleanupStack.Push(() => {
+                    if (!window.IsDisposed)
+                    {
+                        window.Close();
+                    }
+                    window = null;
+                });
             }
             
             void InitSwapChain()
@@ -181,8 +173,99 @@ namespace VulkanPlayground
                 {
                     throw new Exception("Failed to create swap chain");
                 }
-                                
+
+                swapChainSemphore = device.CreateSemaphore(new SemaphoreCreateInfo { });
+
                 // TODO : create Images and Image Views
+
+                Image[] images = device.GetSwapchainImagesKHR(swapChain);
+                ImageView[] views = new ImageView[images.Length];
+
+                int i = 0;
+                foreach(Image image in images)
+                {
+                    ImageView view = device.CreateImageView(new ImageViewCreateInfo
+                    {
+                        Image = image,
+                        Format = Format.B8G8R8A8Unorm,
+                        ViewType = ImageViewType.View2D,
+                        Components = new ComponentMapping
+                        {
+                            R = ComponentSwizzle.Identity,
+                            G = ComponentSwizzle.Identity,
+                            B = ComponentSwizzle.Identity,
+                            A = ComponentSwizzle.Identity,
+                        },
+                        SubresourceRange = new ImageSubresourceRange
+                        {
+                            AspectMask = ImageAspectFlags.Color,
+                            LayerCount = 1,
+                            LevelCount = 1,
+                            BaseMipLevel = 0,
+                            BaseArrayLayer = 0,
+                        },
+                    });
+
+                    views[i] = view;
+                    i++;
+                }
+
+                RenderPass renderPass = device.CreateRenderPass(new RenderPassCreateInfo
+                {
+                    Attachments = new AttachmentDescription[]
+                    {
+                        new AttachmentDescription
+                        {
+                            
+                        }
+                    },
+                    Dependencies = new SubpassDependency[]
+                    {
+                        new SubpassDependency
+                        {
+
+                        }
+                    },
+                    Subpasses = new SubpassDescription[]
+                    {
+                        new SubpassDescription
+                        {
+                            
+                        }
+                    }                   
+                });
+
+                foreach(ImageView view in views)
+                {
+                    device.CreateFramebuffer(new FramebufferCreateInfo
+                    {
+                        Attachments = new ImageView[] { view },
+                        Width = 0,
+                        Height = 0, // TODO : get this from the swapchain creation
+                        Layers = 1,
+                        RenderPass = renderPass,
+                });
+                }
+
+                //uint imageIndex = device.AcquireNextImageKHR(swapChain, uint.MaxValue, swapChainSemphore);
+
+                // TODO : change image layout 
+
+                cleanupStack.Push(() => {
+                    foreach(ImageView imageView in views)
+                    {
+                        device.DestroyImageView(imageView);
+                    }
+
+                    device.DestroySemaphore(swapChainSemphore);
+                    swapChainSemphore = null;
+
+                    device.DestroySwapchainKHR(swapChain);
+                    swapChain = null;
+
+                    instance.DestroySurfaceKHR(surface);
+                    surface = null;
+                });
             }            
         }        
     }
