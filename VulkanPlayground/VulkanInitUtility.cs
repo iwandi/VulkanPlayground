@@ -419,7 +419,7 @@ namespace VulkanPlayground
         }
 
         public static bool TryCreateSwapChain(Instance instance, PhysicalDevice physicalDevice, Device device,
-            SurfaceKhr surface, uint queue, System.Drawing.Size size,
+            SurfaceKhr surface, uint queue, ref System.Drawing.Size size,
             Format format, ColorSpaceKhr colorSpace, PresentModeKhr presentMode,
             ref SwapchainKhr swapchain)
         {   
@@ -445,6 +445,9 @@ namespace VulkanPlayground
             {
                 return false;
             }
+
+            size.Width = (int)swapChainCreateInfo.ImageExtent.Width;
+            size.Height = (int)swapChainCreateInfo.ImageExtent.Height;
 
             SwapchainKhr newSwapchain = device.CreateSwapchainKHR(swapChainCreateInfo);
             if (newSwapchain != null)

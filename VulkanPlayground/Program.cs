@@ -168,15 +168,17 @@ namespace VulkanPlayground
 
                 // TODO : try to use a linear format
                 // TODO : dount just guest the queue
-                if(!VulkanInitUtility.TryCreateSwapChain(instance, physicalDevice, device, surface, (uint)0, window.Size,
-                    Format.B8G8R8A8Unorm, ColorSpaceKhr.SrgbNonlinear, PresentModeKhr.Fifo, ref swapChain))
+                Format format = Format.B8G8R8A8Unorm;
+                System.Drawing.Size size = window.Size;
+                if (!VulkanInitUtility.TryCreateSwapChain(instance, physicalDevice, device, surface, (uint)0, ref size,
+                    format, ColorSpaceKhr.SrgbNonlinear, PresentModeKhr.Fifo, ref swapChain))
                 {
                     throw new Exception("Failed to create swap chain");
                 }
 
                 swapChainSemphore = device.CreateSemaphore(new SemaphoreCreateInfo { });
 
-                // TODO : create Images and Image Views
+                // create Images and Image Views
 
                 Image[] images = device.GetSwapchainImagesKHR(swapChain);
                 ImageView[] views = new ImageView[images.Length];
@@ -187,7 +189,7 @@ namespace VulkanPlayground
                     ImageView view = device.CreateImageView(new ImageViewCreateInfo
                     {
                         Image = image,
-                        Format = Format.B8G8R8A8Unorm,
+                        Format = format,
                         ViewType = ImageViewType.View2D,
                         Components = new ComponentMapping
                         {
@@ -210,41 +212,73 @@ namespace VulkanPlayground
                     i++;
                 }
 
+                // create a render pass for presentation
+
                 RenderPass renderPass = device.CreateRenderPass(new RenderPassCreateInfo
                 {
                     Attachments = new AttachmentDescription[]
                     {
                         new AttachmentDescription
                         {
-                            
-                        }
-                    },
-                    Dependencies = new SubpassDependency[]
-                    {
-                        new SubpassDependency
-                        {
-
+                            Format = format,
+                            Samples = SampleCountFlags.Count1,
+                            LoadOp = AttachmentLoadOp.Clear,
+                            StoreOp = AttachmentStoreOp.Store,
+                            StencilLoadOp = AttachmentLoadOp.DontCare,
+                            StencilStoreOp = AttachmentStoreOp.DontCare,
+                            InitialLayout = Vulkan.ImageLayout.Undefined,
+                            FinalLayout = Vulkan.ImageLayout.PresentSrcKhr,
                         }
                     },
                     Subpasses = new SubpassDescription[]
                     {
                         new SubpassDescription
                         {
-                            
+                            PipelineBindPoint = PipelineBindPoint.Graphics,
+                            ColorAttachments = new AttachmentReference[]
+                            {
+                                new AttachmentReference
+                                {
+                                    Attachment = 0u,
+                                    Layout = Vulkan.ImageLayout.ColorAttachmentOptimal,
+                                }
+                            },                            
                         }
-                    }                   
+                    }                
                 });
+
+                /*GraphicsPipelineCreateInfo gpCreateInfo = new GraphicsPipelineCreateInfo
+                {
+                    Stages = new PipelineShaderStageCreateInfo[]
+                    {
+                        new PipelineShaderStageCreateInfo
+                        {
+                            
+                        },
+                        new PipelineShaderStageCreateInfo
+                        {
+
+                        }
+                    }
+                };
+
+                PipelineLayout pipelineLayout = device.CreatePipelineLayout(new PipelineLayoutCreateInfo
+                {
+                    
+                });*/
+
+                // Create the framebuffers
 
                 foreach(ImageView view in views)
                 {
                     device.CreateFramebuffer(new FramebufferCreateInfo
                     {
                         Attachments = new ImageView[] { view },
-                        Width = 0,
-                        Height = 0, // TODO : get this from the swapchain creation
+                        Width = (uint)size.Width,
+                        Height = (uint)size.Height,
                         Layers = 1,
                         RenderPass = renderPass,
-                });
+                    });
                 }
 
                 //uint imageIndex = device.AcquireNextImageKHR(swapChain, uint.MaxValue, swapChainSemphore);
@@ -256,6 +290,12 @@ namespace VulkanPlayground
                     {
                         device.DestroyImageView(imageView);
                     }
+
+                    //device.DestroyPipelineLayout(pipelineLayout);
+                    //pipelineLayout = null;
+
+                    device.DestroyRenderPass(renderPass);
+                    renderPass = null;
 
                     device.DestroySemaphore(swapChainSemphore);
                     swapChainSemphore = null;
